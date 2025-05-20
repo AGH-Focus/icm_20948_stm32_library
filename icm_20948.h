@@ -1,12 +1,13 @@
 #pragma once
 
 #include "main.h"
+#include <string.h>
 
 /* USER DEFINE */
 extern SPI_HandleTypeDef hspi2;
 #define IMU_HSPI hspi2
 #define IMU_CS_PORT SPI2_CS_GPIO_Port
-#define IMU_CS_PIN SPI2_CS_GPIO_Pin
+#define IMU_CS_PIN SPI2_CS_Pin
 #define GYRO_RANGE _gyro_range_1000dps
 #define ACCEL_RANGE _accel_range_8g
 /* END USER DEFINE */
@@ -22,6 +23,11 @@ extern SPI_HandleTypeDef hspi2;
 #define ACCEL_SMPLRT_DIV_2 0x11
 #define ACCEL_CONFIG 0x14
 #define USER_CTRL 0x03
+#define INT_PIN_CFG 0x0F
+#define INT_ENABLE 0x10
+#define INT_ENABLE_1 0x11
+#define INT_STATUS 0x19
+#define INT_STATUS_1 0x1A
 #define XG_OFFS_USRH 0x03
 #define XG_OFFS_USRL 0x04
 #define YG_OFFS_USRH 0x05
@@ -62,12 +68,14 @@ extern SPI_HandleTypeDef hspi2;
 #define TEMP_OUT_L 0x3A
 
 //macros
-#define DISABLE_I2C_SLAVE 0x01
+#define ICM_NUM_DATA_BYTES 22
 
 //magnetometer bias removal
 #define MAG_BIAS_X -130
 #define MAG_BIAS_Y 87
 #define MAG_BIAS_Z -170
+
+
 
 typedef enum{
 	_gyro_range_250dps,
@@ -95,6 +103,9 @@ typedef struct{
 	int16_t z_mag;
 } icm_20948_data;
 
+extern icm_20948_data icm_data;
+extern uint8_t data_rx[ICM_NUM_DATA_BYTES];
+
 void icm_20948_select_reg_bank(uint8_t user_bank);
 void icm_20948_read_reg(uint8_t reg, uint8_t* data);
 void icm_20948_write_reg(uint8_t reg, uint8_t data);
@@ -103,3 +114,6 @@ void icm_20948_init(void);
 void icm_20948_get_address(uint8_t* icm_address);
 void icm_20948_read_temp(int16_t* temp);
 void icm_20948_read_data(icm_20948_data* icm_data);
+void icm_20948_read_exti(uint8_t* data);
+void icm_20948_read_data_dma();
+void icm_20948_spi_dma_callback();

@@ -1,11 +1,14 @@
 #include "icm_20948.h"
 
+icm_20948_data icm_data;
+uint8_t data_rx[ICM_NUM_DATA_BYTES];
+
 static void icm_start_spi(void) {
-	HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_RESET);
 }
 
 static void icm_stop_spi(void) {
-	HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET);
 }
 
 static void icm_transmit_byte(uint8_t byte) {
@@ -15,6 +18,8 @@ static void icm_transmit_byte(uint8_t byte) {
 static void icm_receive_bytes(uint16_t no_bytes, uint8_t *byte) {
 	HAL_SPI_Receive(&IMU_HSPI, byte, no_bytes, 100);
 }
+
+
 
 static void ak09916_write_reg(uint8_t reg, uint8_t data){
 	icm_20948_select_reg_bank(3);
@@ -143,6 +148,11 @@ void icm_20948_init(void) {
 	icm_20948_write_reg(ACCEL_SMPLRT_DIV_2, 0x00);
 	icm_20948_write_reg(ACCEL_CONFIG, ((ACCEL_RANGE << 1) | 0x01));
 
+	//EXTI config
+	icm_20948_select_reg_bank(0);
+	icm_20948_write_reg(INT_PIN_CFG, 0x10);
+	icm_20948_write_reg(INT_ENABLE_1, 0x01);
+
 	//disable i2c and enable magnetometer
 	uint8_t user_ctrl_data;
 	icm_20948_select_reg_bank(0);
@@ -151,6 +161,8 @@ void icm_20948_init(void) {
 	HAL_Delay(100);
 	ak09916_mag_init();
 	ak09916_read_reg(MAG_DATA, 8);
+
+	icm_20948_select_reg_bank(0);
 }
 
 
@@ -161,30 +173,57 @@ void icm_20948_get_address(uint8_t *icm_address) {
 }
 
 void icm_20948_read_temp(int16_t *temp) {
-	uint16_t no_data_bytes = 2;
-	uint8_t data_rx[no_data_bytes];
+	uint8_t data_rx[ICM_NUM_DATA_BYTES];
 	icm_20948_select_reg_bank(0);
-	icm_20948_read_reg_burst(no_data_bytes, (TEMP_OUT_H | 0x08), data_rx);
+	icm_20948_read_reg_burst(ICM_NUM_DATA_BYTES, (TEMP_OUT_H | 0x08), data_rx);
 	*temp = (data_rx[0] << 8) | data_rx[1];
 }
 
-void icm_20948_read_data(icm_20948_data *icm_data) {
-	uint16_t no_data_bytes = 22;
-	uint8_t data_rx[no_data_bytes];
+void icm_20948_read_data(icm_20948_data *icm_data_) {
+	uint8_t data_rx_t[ICM_NUM_DATA_BYTES];
 
 	icm_20948_select_reg_bank(0);
-	icm_20948_read_reg_burst(no_data_bytes,(ACCEL_XOUT_H | 0x80), data_rx);
+	icm_20948_read_reg_burst(ICM_NUM_DATA_BYTES,(ACCEL_XOUT_H | 0x80), data_rx_t);
 
-	icm_data->x_accel = (data_rx[0] << 8) | data_rx[1];
-	icm_data->y_accel = (data_rx[2] << 8) | data_rx[3];
-	icm_data->z_accel = (data_rx[4] << 8) | data_rx[5];
+	icm_data_->x_accel = (data_rx_t[0] << 8) | data_rx_t[1];
+	icm_data_->y_accel = (data_rx_t[2] << 8) | data_rx_t[3];
+	icm_data_->z_accel = (data_rx_t[4] << 8) | data_rx_t[5];
 
-	icm_data->x_gyro = (data_rx[6] << 8) | data_rx[7];
-	icm_data->y_gyro = (data_rx[8] << 8) | data_rx[9];
-	icm_data->z_gyro = (data_rx[10] << 8) | data_rx[11];
+	icm_data_->x_gyro = (data_rx_t[6] << 8) | data_rx_t[7];
+	icm_data_->y_gyro = (data_rx_t[8] << 8) | data_rx_t[9];
+	icm_data_->z_gyro = (data_rx_t[10] << 8) | data_rx_t[11];
 
-	icm_data->x_mag = ((data_rx[15] << 8) | data_rx[14]) - MAG_BIAS_X;
-	icm_data->y_mag = ((data_rx[17] << 8) | data_rx[16]) - MAG_BIAS_Y;
-	icm_data->z_mag = ((data_rx[19] << 8) | data_rx[18]) - MAG_BIAS_Z;
+	icm_data_->x_mag = ((data_rx_t[15] << 8) | data_rx_t[14]) - MAG_BIAS_X;
+	icm_data_->y_mag = ((data_rx_t[17] << 8) | data_rx_t[16]) - MAG_BIAS_Y;
+	icm_data_->z_mag = ((data_rx_t[19] << 8) | data_rx_t[18]) - MAG_BIAS_Z;
 
+}
+
+void icm_20948_read_exti(uint8_t* data){
+	icm_20948_read_reg(INT_STATUS_1, data);
+}
+
+void icm_20948_read_data_dma(void){
+	uint8_t data_tx[ICM_NUM_DATA_BYTES];
+    data_tx[0] = ACCEL_XOUT_H | 0x80;
+    memset(&data_tx[1], 0xFF, ICM_NUM_DATA_BYTES-1);
+
+	icm_start_spi();
+	HAL_SPI_TransmitReceive_DMA(&IMU_HSPI, data_tx, data_rx, ICM_NUM_DATA_BYTES);
+}
+
+void icm_20948_spi_dma_callback(){
+	icm_stop_spi();
+
+	icm_data.x_accel = (data_rx[1] << 8) | data_rx[2];
+	icm_data.y_accel = (data_rx[3] << 8) | data_rx[4];
+	icm_data.z_accel = (data_rx[5] << 8) | data_rx[6];
+
+	icm_data.x_gyro = (data_rx[7] << 8) | data_rx[8];
+	icm_data.y_gyro = (data_rx[9] << 8) | data_rx[10];
+	icm_data.z_gyro = (data_rx[11] << 8) | data_rx[12];
+
+	icm_data.x_mag = ((data_rx[16] << 8) | data_rx[15]) - MAG_BIAS_X;
+	icm_data.y_mag = ((data_rx[18] << 8) | data_rx[17]) - MAG_BIAS_Y;
+	icm_data.z_mag = ((data_rx[20] << 8) | data_rx[19]) - MAG_BIAS_Z;
 }
